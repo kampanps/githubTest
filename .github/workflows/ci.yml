@@ -1,0 +1,176 @@
+name: CI
+
+# Note: this file must live at .github/workflows/ in the REPOSITORY ROOT.
+# Anywhere else and GitHub Actions silently ignores it.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push to the same branch cancels the run that is already in flight.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_ENV: test
+
+jobs:
+  # --- build --------------------------------------------------------------
+  build:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Compile
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+
+  # --- test ---------------------------------------------------------------
+  unit:
+    name: Unit tests (node ${{ matrix.node }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      # One red Node version should not hide the result of the others.
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run unit tests
+        run: npm run ci:unit
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-unit-node${{ matrix.node }}
+          path: reports/junit.xml
+          retention-days: 7
+
+  integration:
+    name: Integration tests
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run integration tests
+        run: npm run ci:integration
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-integration
+          path: reports/junit.xml
+          retention-days: 7
+
+  # --- quality ------------------------------------------------------------
+  coverage:
+    name: Coverage gate
+    needs: [unit, integration]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      # Fails the job when the thresholds in jest.config.js are not met.
+      - name: Run the full suite with coverage
+        run: npm run ci:coverage
+
+      - name: Publish the summary to the run page
+        if: always()
+        run: |
+          {
+            echo "## Coverage"
+            echo
+            if [ -f coverage/coverage-summary.json ]; then
+              node -e '
+                const s = require("./coverage/coverage-summary.json").total;
+                console.log("| Metric | Covered | Total | % |");
+                console.log("| --- | ---: | ---: | ---: |");
+                for (const key of ["statements", "branches", "functions", "lines"]) {
+                  const m = s[key];
+                  console.log(`| ${key} | ${m.covered} | ${m.total} | ${m.pct}% |`);
+                }
+              '
+            else
+              echo "_No coverage summary was produced._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  # Proves the artifact produced by `build` is actually runnable.
+  verify-artifact:
+    name: Verify build artifact
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci --omit=dev
+
+      - name: Download dist
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Boot the compiled build
+        # Every `Db` import in src/ is type-only, so simply requiring app.js would
+        # never touch better-sqlite3. The smoke script boots the real wiring.
+        run: npm run smoke

@@ -1,0 +1,114 @@
+# ---------------------------------------------------------------------------
+# Library Lending API - GitLab CI
+#
+#   build  ->  test  ->  quality
+#
+#   build      compiles TypeScript once; dist/ is passed downstream as an artifact
+#   test       unit and integration run in PARALLEL (same stage, no needs between them)
+#   quality    re-runs everything with coverage and fails if the gate is not met
+# ---------------------------------------------------------------------------
+
+default:
+  image: node:20
+  # npm's cache is keyed on the lockfile: a dependency bump busts it, nothing else does.
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+    policy: pull
+  before_script:
+    - node --version
+    - npm ci --cache .npm --prefer-offline
+
+stages:
+  - build
+  - test
+  - quality
+
+variables:
+  NODE_ENV: test
+  # Jest prints its own progress; keep npm from adding noise on top.
+  npm_config_fund: "false"
+  npm_config_audit: "false"
+
+# --- build ------------------------------------------------------------------
+
+typecheck_and_build:
+  stage: build
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+    policy: pull-push
+  script:
+    - npm run typecheck
+    - npm run build
+  artifacts:
+    name: "dist-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - dist/
+    expire_in: 1 day
+
+# --- test -------------------------------------------------------------------
+
+unit_tests:
+  stage: test
+  script:
+    - npm run ci:unit
+  artifacts:
+    when: always
+    reports:
+      junit: reports/junit.xml
+    paths:
+      - reports/
+    expire_in: 1 week
+
+integration_tests:
+  stage: test
+  script:
+    - npm run ci:integration
+  artifacts:
+    when: always
+    reports:
+      junit: reports/junit.xml
+    paths:
+      - reports/
+    expire_in: 1 week
+
+# --- quality ----------------------------------------------------------------
+
+coverage_gate:
+  stage: quality
+  script:
+    # jest exits non-zero when coverageThreshold in jest.config.js is not met,
+    # which is what turns "coverage dropped" into a red pipeline.
+    - npm run ci:coverage
+  # Scrapes the number GitLab shows on the MR widget and the job list.
+  coverage: '/Statements\s*:\s*(\d+\.?\d*)%/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+    paths:
+      - coverage/
+    expire_in: 1 week
+
+# Boots the COMPILED artifact against a production-only install.
+# This is the only job that would notice a devDependency imported from src/,
+# or a native module that fails to install on the runner.
+verify_build_artifact:
+  stage: quality
+  needs:
+    - job: typecheck_and_build
+      artifacts: true
+  before_script:
+    - npm ci --omit=dev --cache .npm --prefer-offline
+  script:
+    - test -f dist/server.js || (echo "dist/server.js missing from the build artifact" && exit 1)
+    - npm run smoke

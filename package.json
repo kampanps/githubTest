@@ -1,0 +1,60 @@
+{
+  "name": "library-lending-api",
+  "version": "1.0.0",
+  "description": "Library Lending System - full backend API used as a CI/CD playground for GitLab CI and GitHub Actions",
+  "main": "dist/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js",
+    "dev": "ts-node --files src/server.ts",
+    "seed": "ts-node --files src/db/seed.ts",
+    "test": "jest",
+    "test:unit": "jest --selectProjects unit",
+    "test:integration": "jest --selectProjects integration --runInBand",
+    "test:coverage": "jest --coverage --runInBand",
+    "ci:unit": "jest --selectProjects unit --ci --reporters=default --reporters=jest-junit",
+    "ci:integration": "jest --selectProjects integration --runInBand --ci --reporters=default --reporters=jest-junit",
+    "ci:coverage": "jest --coverage --runInBand --ci",
+    "clean": "rimraf dist coverage reports",
+    "smoke": "node scripts/smoke.js"
+  },
+  "keywords": [
+    "express",
+    "typescript",
+    "sqlite",
+    "jest",
+    "ci"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.3",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.3.0",
+    "@types/supertest": "^6.0.3",
+    "jest": "^30.0.0",
+    "jest-junit": "^17.0.0",
+    "rimraf": "^6.0.1",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.4.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  },
+  "jest-junit": {
+    "outputDirectory": "reports",
+    "outputName": "junit.xml",
+    "classNameTemplate": "{classname}",
+    "titleTemplate": "{title}",
+    "ancestorSeparator": " > ",
+    "addFileAttribute": "true"
+  }
+}
