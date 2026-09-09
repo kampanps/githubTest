@@ -18,7 +18,7 @@ export const TIER_POLICIES: Readonly<Record<MemberTier, TierPolicy>> = Object.fr
 });
 
 /** Money is stored in whole cents (satang) - never floats. */
-export const FINE_PER_DAY_CENTS = 600;
+export const FINE_PER_DAY_CENTS = 500;
 
 /** Days of lateness that are forgiven before any fine accrues. */
 export const FINE_GRACE_DAYS = 1;
